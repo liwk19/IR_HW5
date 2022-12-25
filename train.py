@@ -203,8 +203,6 @@ def test(model):
     scores_rank = torch.argsort(scores, dim=1, descending=True)
     scores_rank = scores_rank - torch.tensor(test_answer).unsqueeze(1).to(device)
     scores_goal = torch.argwhere(scores_rank == 0)[:, 1]
-    print(scores_goal)
-    print(scores_goal.shape)
     recall_3 = (scores_goal < 3).sum() / scores_goal.shape[0]
     recall_10 = (scores_goal < 10).sum() / scores_goal.shape[0]
     recall_50 = (scores_goal < 50).sum() / scores_goal.shape[0]
