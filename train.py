@@ -13,7 +13,7 @@ import argparse
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 argparser.add_argument('--lr', type=float, default=5e-5)
-argparser.add_argument('--num_epochs', type=int, default=1)
+argparser.add_argument('--num_epochs', type=int, default=20)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1, help='used for triplet loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
@@ -146,16 +146,16 @@ class TextPairScorer(nn.Module):
 
 
 def train(model: TextEncoder):
-    if model_name == 'regression':
+    if args.model_name == 'regression':
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是tokenizer
         loss_fn = RegressionLoss()
-    elif model_name in ['contrastive', 'triplet']:
+    elif args.model_name in ['contrastive', 'triplet']:
         dataset = get_train_neg()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_batch_neg
-        loss_fn = ContrastiveLoss() if loss_name == 'contrastive' else TripletLoss()
+        loss_fn = ContrastiveLoss() if args.model_name == 'contrastive' else TripletLoss()
 
     # 定义训练策略
     optimizer = AdamW(model.parameters(), lr=args.lr)
@@ -169,7 +169,7 @@ def train(model: TextEncoder):
     model.train()
     for epoch in range(args.num_epochs):
         for batch in train_dataloader:
-            if loss_name == 'regression':
+            if args.model_name == 'regression':
                 batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                 outputs = model(batch)
                 loss = loss_fn(outputs, label)
@@ -182,7 +182,7 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
-        print(loss)
+        test(model)
 
 
 def test(model):
@@ -239,7 +239,7 @@ if __name__ == '__main__':
     model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    # train(model)
+    train(model)
     test(model)
 
     # 保存模型
