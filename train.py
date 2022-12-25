@@ -9,15 +9,16 @@ from torch import nn
 from utils import *
 import torch.nn.functional as F
 import argparse
+import copy
 
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 argparser.add_argument('--lr', type=float, default=5e-5)
-argparser.add_argument('--num_epochs', type=int, default=20)
+argparser.add_argument('--num_epochs', type=int, default=10)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
-argparser.add_argument('--in_batch_t', type=float, default=0.03, help='used for contrastive loss')
-argparser.add_argument('--hard_t', type=float, default=0.02, help='used for contrastive loss')
+argparser.add_argument('--in_batch_t', type=float, default=0.05, help='used for contrastive loss')
+argparser.add_argument('--hard_t', type=float, default=0.05, help='used for contrastive loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
     choices=['regression', 'contrastive', 'triplet', 'bm25', 'rerank'])
 args = argparser.parse_args()
@@ -170,6 +171,9 @@ def train(model: TextEncoder):
     progress_bar = tqdm(range(num_training_steps))
 
     model.train()
+    best_model = None
+    min_loss = 1e9
+
     for epoch in range(args.num_epochs):
         for batch in train_dataloader:
             if args.model_name == 'regression':
@@ -185,8 +189,14 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
+        
         print(f'Epoch: {epoch}')
         test(model)
+        if loss.item() < min_loss:
+            min_loss = loss.item()
+            best_model = copy.deepcopy(model)
+
+    return best_model
 
 
 def test(model):
@@ -241,7 +251,7 @@ if __name__ == '__main__':
     model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    train(model)
+    model = train(model)
     test(model)
 
     # 保存模型
