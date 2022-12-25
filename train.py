@@ -73,7 +73,7 @@ class TextEncoder(nn.Module):
         interval = 1000
         text_embs = []
         with torch.no_grad():
-            for i in tqdm(range(0, len(texts), interval)):
+            for i in range(0, len(texts), interval):
                 high_bound = min(i+interval, len(texts))
                 tokens = self.tokenizer(texts[i:high_bound], padding=True, truncation=True, return_tensors="pt")
                 for k in tokens.keys():
@@ -182,6 +182,7 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
+        print(f'Epoch: {epoch}')
         test(model)
 
 
