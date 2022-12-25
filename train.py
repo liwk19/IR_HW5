@@ -190,7 +190,7 @@ def train(model: TextEncoder):
             optimizer.zero_grad()
             progress_bar.update(1)
         
-        print(f'Epoch: {epoch}')
+        print(f'Epoch: {epoch}, loss: {loss:.4f}')
         test(model)
         if loss.item() < min_loss:
             min_loss = loss.item()
