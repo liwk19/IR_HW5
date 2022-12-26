@@ -158,11 +158,11 @@ def bm25(query, query_seg, size):
 
 
 def train(model: TextEncoder):
-    if args.model_name == 'regression':
+    if args.model_name in ['regression', 'rerank']:
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是tokenizer
-        loss_fn = RegressionLoss()
+        loss_fn = RegressionLoss() if args.model_name == 'regression' else nn.BCEWithLogitsLoss()
     elif args.model_name in ['contrastive', 'triplet']:
         dataset = get_train_neg()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
