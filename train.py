@@ -215,20 +215,22 @@ def train(model, model_name=args.model_name):
         optimizer = AdamW(model.parameters(), lr=1e-5)
     else:
         optimizer = AdamW(model.parameters(), lr=args.lr)
+    
+    # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
+    if model_name == 'contrastive_rerank':
+        args.num_epochs = 5
+    print(args.num_epochs)
     if model_name != 'combine':
         num_training_steps = args.num_epochs * len(train_dataloader)
     else:
         num_training_steps = args.num_epochs * (len(train_dataloader1) + len(train_dataloader2))
+    
     lr_scheduler = get_scheduler(
         name="linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
     )
-
     print('training:', model_name)
     progress_bar = tqdm(range(num_training_steps))
     model.train()
-    # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
-    if model_name == 'contrastive_rerank':
-        args.num_epochs = 5
 
     for epoch in range(args.num_epochs):
         if model_name != 'combine':
