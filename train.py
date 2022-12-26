@@ -19,8 +19,9 @@ argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
 argparser.add_argument('--in_batch_t', type=float, default=0.05, help='used for contrastive loss')
 argparser.add_argument('--hard_t', type=float, default=0.05, help='used for contrastive loss')
+argparser.add_argument('--max_bm25_len', type=int, default=100, help='used for bm25_rerank')
 argparser.add_argument('--model_name', type=str, default='regression', 
-    choices=['regression', 'contrastive', 'triplet', 'bm25', 'rerank'])
+    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank'])
 args = argparser.parse_args()
 
 
@@ -140,20 +141,41 @@ class TextPairScorer(nn.Module):
         self.tokenizer: BertTokenizer = BertTokenizer.from_pretrained(path)
         self.bert_model = BertModel.from_pretrained(path)
         self.fc = nn.Linear(768, 1)
-        if os.path.exists(path):
-            self.fc.load_state_dict(torch.load(f'{path}/linear.bin'))
+        self.device = device
         self.to(device)
     
-    def forward(self, inputs_tuple):
-        bert_emb = self.bert_model(**inputs_tuple[0])[0][:, 0]
-        return self.fc(bert_emb)
+    def forward(self, inputs):
+        bert_emb = self.bert_model(**inputs[0])[0][:, 0]
+        return self.fc(bert_emb).squeeze(1)
+
+    def collate_fn_pair_score(self, batch):
+        queries, docs, scores = [x[0] for x in batch], [x[1] for x in batch], [x[2] for x in batch]
+        pair_input = self.tokenizer(queries, docs, padding=True, truncation=True, return_tensors="pt")
+        scores = torch.tensor(scores)
+        return [pair_input, scores]
+
+    def encode(self, texts_pairs):
+        interval = 1000
+        text_embs = []
+        with torch.no_grad():
+            for i in range(0, len(texts_pairs), interval):
+                high_bound = min(i+interval, len(texts_pairs))
+                queries = [text[0] for text in texts_pairs[i:high_bound]]
+                cands = [text[1] for text in texts_pairs[i:high_bound]]
+                tokens = self.tokenizer(queries, cands, padding=True, truncation=True, return_tensors="pt")
+                for k in tokens.keys():
+                    tokens[k] = tokens[k].to(device)
+                text_embs.append(self.forward([tokens]))
+        text_embs = torch.cat(text_embs)
+        assert text_embs.shape[0] == len(texts_pairs)
+        return text_embs
 
 
-def train(model: TextEncoder):
-    if args.model_name in ['regression', 'rerank']:
+def train(model):
+    if args.model_name in ['regression', 'bm25_rerank']:
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
-        train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是tokenizer
+        train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
         loss_fn = RegressionLoss() if args.model_name == 'regression' else nn.BCEWithLogitsLoss()
     elif args.model_name in ['contrastive', 'triplet']:
         dataset = get_train_neg()
@@ -173,7 +195,7 @@ def train(model: TextEncoder):
     model.train()
     for epoch in range(args.num_epochs):
         for batch in train_dataloader:
-            if args.model_name == 'regression':
+            if args.model_name in ['regression', 'bm25_rerank']:
                 batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                 outputs = model(batch)
                 loss = loss_fn(outputs, label)
@@ -186,22 +208,46 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
-        # test(model)
+        test(model)
 
 
 def test(model):
-    if args.model_name == 'bm25':
-        pass
+    quotes_ori = load_json('data/corpus.json')
+    quotes = [quote['content'] for quote in quotes_ori]
+    test_data = load_json('data/test_hard.json')
+    model.eval()
+
+    if args.model_name == 'bm25_rerank':
+        bm25_results_list = np.load('data/bm25_rank_list.npy', allow_pickle=True)
+        rank_list = []
+        for i in range(len(test_data)):
+            query = test_data[i]['query']
+            answer_idx = quotes.index(test_data[i]['golden_quote'])
+            bm25_results = bm25_results_list[i][0:args.max_bm25_len]
+            texts_pairs = [[query, quotes[j]] for j in bm25_results]
+            with torch.no_grad():
+                scores = model.encode(texts_pairs)
+            scores_rank = torch.argsort(scores, descending=True)
+            goal = (scores_rank==answer_idx).nonzero()
+            if goal.shape[0] == 1:
+                rank_list.append(goal[0][0])
+            elif goal.shape[0] == 0:
+                rank_list.append((len(bm25_results) + 13200) / 2)
+            else:
+                exit()
+        
+        rank_list = np.array(rank_list) + 1
+        recall_3 = (rank_list <= 3).mean()
+        recall_10 = (rank_list <= 10).mean()
+        recall_50 = (rank_list <= 50).mean()
+        mrr = (1 / rank_list).mean()
     
     else:
         # 将库中所有文本编码为向量
-        quotes_ori = load_json('data/corpus.json')
-        quotes = [quote['content'] for quote in quotes_ori]
         model.eval()
         with torch.no_grad():
             quotes_embeddings = model.encode(quotes)
         quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
-        test_data = load_json('data/test_hard.json')
         test_query = []
         test_answer = []
         for i in range(len(test_data)):
@@ -219,7 +265,8 @@ def test(model):
         recall_10 = (scores_goal < 10).sum() / scores_goal.shape[0]
         recall_50 = (scores_goal < 50).sum() / scores_goal.shape[0]
         mrr = (1 / (scores_goal + 1)).mean()
-        print(f'recall@3: {recall_3:.3f}, recall@10: {recall_10:.3f}, recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
+    
+    print(f'recall@3: {recall_3:.3f}, recall@10: {recall_10:.3f}, recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
 
 
 def demo(model, path):
@@ -246,11 +293,13 @@ def demo(model, path):
 if __name__ == '__main__':
     set_seed(42)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    model = TextEncoder('bert-base-chinese', device)
+    if args.model_name == 'bm25_rerank':
+        model = TextPairScorer('bert-base-chinese', device)
+    else:
+        model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    if args.model_name != 'bm25':
-        train(model)
+    train(model)
     test(model)
 
     # 保存模型
