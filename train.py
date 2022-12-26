@@ -16,12 +16,12 @@ argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.Argument
 argparser.add_argument('--lr', type=float, default=5e-5)
 argparser.add_argument('--num_epochs', type=int, default=3)
 argparser.add_argument('--batch_size', type=int, default=60)
-argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
+argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet or triplet_new loss')
 argparser.add_argument('--t', type=float, default=0.03, help='used for contrastive loss')
 argparser.add_argument('--k1', type=float, default=0.2, help='used for combine loss')
 argparser.add_argument('--k2', type=float, default=0.6, help='used for combine loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
-    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine'])
+    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new'])
 args = argparser.parse_args()
 
 
@@ -103,6 +103,17 @@ class TripletLoss(nn.Module):
         return losses.mean()
 
 
+class TripletNewLoss(nn.Module):
+    def forward(self, outputs):
+        # TODO: 实现的Triplet Loss训练损失
+        # outputs里有三个矩阵A, B, C。(A[i], B[i], C[i])代表三元组(query, positive_doc, negative_doc)。
+        # 参见 https://arxiv.org/pdf/1908.10084.pdf 的 Triplet Objective Function
+        sim_pos = torch.cosine_similarity(outputs[0], outputs[1])
+        sim_neg = torch.cosine_similarity(outputs[0], outputs[2])
+        losses = F.relu(sim_neg - sim_pos + args.margin)
+        return losses.mean()
+
+
 class RegressionLoss(nn.Module):
     def forward(self, outputs, labels):
         # TODO: 实现相似度拟合的训练损失
@@ -176,11 +187,16 @@ def train(model):
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
         loss_fn = RegressionLoss() if args.model_name == 'regression' else nn.BCEWithLogitsLoss()
-    elif args.model_name in ['contrastive', 'triplet']:
+    elif args.model_name in ['contrastive', 'triplet', 'triplet_new']:
         dataset = get_train_neg()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_batch_neg
-        loss_fn = ContrastiveLoss() if args.model_name == 'contrastive' else TripletLoss()
+        if args.model_name == 'contrastive':
+            loss_fn = ContrastiveLoss()
+        elif args.model_name == 'triplet':
+            loss_fn = TripletLoss()
+        else:
+            loss_fn = TripletNewLoss()
     elif args.model_name == 'combine':
         dataset1 = get_train_score()
         train_dataloader1 = DataLoader(dataset1, batch_size=args.batch_size)
@@ -214,7 +230,7 @@ def train(model):
                     batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                     outputs = model(batch)
                     loss = loss_fn(outputs, label)
-                elif args.model_name in ['contrastive', 'triplet']:
+                elif args.model_name in ['contrastive', 'triplet', 'triplet_new']:
                     batch = [{k: v.to(model.device) for k, v in input.items()} for input in batch]
                     outputs = model(batch)
                     loss = loss_fn(outputs)
