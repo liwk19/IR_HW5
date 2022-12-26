@@ -165,7 +165,7 @@ class TextPairScorer(nn.Module):
             bert_emb = F.relu(self.fc1(bert_emb))
             return self.fc2(bert_emb).squeeze(1)
         else:
-            return self.fc(bert_emb)
+            return self.fc(bert_emb).squeeze(1)
 
     def collate_fn_pair_score(self, batch):
         queries, docs, scores = [x[0] for x in batch], [x[1] for x in batch], [x[2] for x in batch]
