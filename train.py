@@ -223,15 +223,17 @@ def test(model):
         for i in tqdm(range(len(test_data))):
             query = test_data[i]['query']
             answer_idx = quotes.index(test_data[i]['golden_quote'])
-            bm25_results = bm25_results_list[i][0:args.max_bm25_len]
+            bm25_results = np.array(bm25_results_list[i][0:args.max_bm25_len])
             texts_pairs = [[query, quotes[j]] for j in bm25_results]
             with torch.no_grad():
                 scores = model.encode(texts_pairs)
             scores_rank = torch.argsort(scores, descending=True)
+            scores_rank = np.array(scores_rank.cpu())
+            scores_rank = bm25_results[scores_rank]
             goal = (scores_rank==answer_idx).nonzero()
-            if goal.shape[0] == 1:
-                rank_list.append(goal[0][0].item())
-            elif goal.shape[0] == 0:
+            if goal[0].shape[0] == 1:
+                rank_list.append(goal[0][0])
+            elif goal[0].shape[0] == 0:
                 rank_list.append((len(bm25_results) + 13200) / 2)
             else:
                 exit()
@@ -299,7 +301,7 @@ if __name__ == '__main__':
         model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    train(model)
+    # train(model)
     test(model)
 
     # 保存模型
