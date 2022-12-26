@@ -19,7 +19,6 @@ argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
 argparser.add_argument('--in_batch_t', type=float, default=0.05, help='used for contrastive loss')
 argparser.add_argument('--hard_t', type=float, default=0.05, help='used for contrastive loss')
-argparser.add_argument('--max_bm25_len', type=int, default=100, help='used for bm25_rerank')
 argparser.add_argument('--model_name', type=str, default='regression', 
     choices=['regression', 'contrastive', 'triplet', 'bm25_rerank'])
 args = argparser.parse_args()
@@ -222,7 +221,7 @@ def test(model):
         for i in tqdm(range(len(test_data))):
             query = test_data[i]['query']
             answer_idx = quotes.index(test_data[i]['golden_quote'])
-            bm25_results = np.array(bm25_results_list[i][0:args.max_bm25_len])
+            bm25_results = np.array(bm25_results_list[i][0:100])
             texts_pairs = [[query, quotes[j]] for j in bm25_results]
             with torch.no_grad():
                 scores = model.encode(texts_pairs)
@@ -281,7 +280,7 @@ def demo(model, query):
         for i in tqdm(range(len(test_data))):
             query = test_data[i]['query']
             answer_idx = quotes.index(test_data[i]['golden_quote'])
-            bm25_results = np.array(bm25_results_list[i][0:args.max_bm25_len])
+            bm25_results = np.array(bm25_results_list[i][0:100])
             texts_pairs = [[query, quotes[j]] for j in bm25_results]
             with torch.no_grad():
                 scores = model.encode(texts_pairs)
