@@ -15,7 +15,7 @@ from rank_bm25 import BM25Okapi
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 argparser.add_argument('--lr', type=float, default=5e-5)
-argparser.add_argument('--num_epochs', type=int, default=10)
+argparser.add_argument('--num_epochs', type=int, default=3)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
 argparser.add_argument('--in_batch_t', type=float, default=0.05, help='used for contrastive loss')
