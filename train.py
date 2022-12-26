@@ -13,13 +13,13 @@ import copy
 
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-argparser.add_argument('--lr', type=float, default=5e-5)
+argparser.add_argument('--lr', type=float, default=1e-5)
 argparser.add_argument('--num_epochs', type=int, default=3)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet or triplet_new loss')
 argparser.add_argument('--t', type=float, default=0.03, help='used for contrastive loss')
 argparser.add_argument('--k1', type=float, default=0.2, help='used for combine loss')
-argparser.add_argument('--k2', type=float, default=0.6, help='used for combine loss')
+argparser.add_argument('--k2', type=float, default=0.7, help='used for combine loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
     choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new', 'contrastive_rerank'])
 args = argparser.parse_args()
