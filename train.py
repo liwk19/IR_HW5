@@ -10,7 +10,6 @@ from utils import *
 import torch.nn.functional as F
 import argparse
 import copy
-from rank_bm25 import BM25Okapi
 
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -127,7 +126,7 @@ class ContrastiveLoss(nn.Module):
         answer = torch.cat([outputs[1], outputs[2]])
         answer_norm = F.normalize(answer, p=2, dim=1)
         scores = torch.mm(query_norm, answer_norm.T)
-        labels = torch.tensor(range(len(scores)), device=device)
+        labels = torch.tensor(range(len(scores)), dtype=torch.long, device=device)
         scores = scores / args.in_batch_t
         scores[list(range(len(scores))), len(scores) + torch.tensor(range(len(scores)))] *= args.in_batch_t / args.hard_t
         loss = nn.CrossEntropyLoss()
@@ -148,13 +147,6 @@ class TextPairScorer(nn.Module):
     def forward(self, inputs_tuple):
         bert_emb = self.bert_model(**inputs_tuple[0])[0][:, 0]
         return self.fc(bert_emb)
-
-
-def bm25(query, query_seg, size):
-    quotes = load_json('data/corpus.json')
-    fenci_quotes = [quote['content_seg'].split(' ') for quote in quotes]
-    fenci_bm25 = BM25Okapi(fenci_quotes)
-    return fenci_bm25.get_top_n(query_seg, quotes, n=size)
 
 
 def train(model: TextEncoder):
@@ -209,29 +201,12 @@ def train(model: TextEncoder):
 
 def test(model):
     if args.model_name == 'bm25':
-        test_data = load_json('data/test_hard.json')
-        rank_list = []
-        for data in test_data:
-            results = bm25(data['query'], query_seg=data['query_seg'], size=13201)
-            find = False
-            for i, res in enumerate(results):
-                if res['content'] == data['golden_quote']:
-                    rank_list.append(i)
-                    find = True
-                    break
-            if not find:
-                exit()
-
-        rank_list = np.array(rank_list) + 1
-        recall_3 = (rank_list <= 3).mean()
-        recall_10 = (rank_list <= 10).mean()
-        recall_50 = (rank_list <= 50).mean()
-        mrr = (1 / rank_list).mean()
-        print(f'Recall@3: {recall_3:.3f}, Recall@10: {recall_10:.3f}, Recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
+        pass
     
     else:
         # 将库中所有文本编码为向量
-        quotes = [quote['content'] for quote in load_json("data/corpus.json")]
+        quotes_ori = load_json('data/corpus.json')
+        quotes = [quote['content'] for quote in quotes_ori]
         quotes_embeddings = model.encode(quotes)
         quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
         test_data = load_json('data/test_hard.json')
