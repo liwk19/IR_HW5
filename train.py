@@ -182,7 +182,7 @@ class TextPairScorer(nn.Module):
 
 
 def train(model, model_name=args.model_name):
-    if model_name in ['regression', 'bm25_rerank']:
+    if model_name in ['regression', 'bm25_rerank', 'contrastive_rerank']:
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
@@ -211,7 +211,10 @@ def train(model, model_name=args.model_name):
         exit()
 
     # 定义训练策略
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+    if model_name == 'contrastive_rerank':   # 命令行只能指定1个lr，为ContrastiveLoss的lr，因此rerank的lr写死为最优值
+        optimizer = AdamW(model.parameters(), lr=1e-5)
+    else:
+        optimizer = AdamW(model.parameters(), lr=args.lr)
     if model_name != 'combine':
         num_training_steps = args.num_epochs * len(train_dataloader)
     else:
@@ -223,11 +226,14 @@ def train(model, model_name=args.model_name):
     progress_bar = tqdm(range(num_training_steps))
     model.train()
     print('training:', model_name)
+    # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
+    if model_name == 'contrastive_rerank':
+        args.num_epochs = 5
 
     for epoch in range(args.num_epochs):
         if model_name != 'combine':
             for batch in train_dataloader:
-                if model_name in ['regression', 'bm25_rerank']:
+                if model_name in ['regression', 'bm25_rerank', 'contrastive_rerank']:
                     batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                     outputs = model(batch)
                     loss = loss_fn(outputs, label)
@@ -395,7 +401,7 @@ if __name__ == '__main__':
         model1 = TextEncoder('bert-base-chinese', device)
         train(model1, model_name='contrastive')
         model2 = TextPairScorer('bert-base-chinese', device)
-        train(model2, model_name='bm25_rerank')
+        train(model2, model_name='contrastive_rerank')
         test(model1, model_name='contrastive_rerank', model2=model2)
     else:   # 3种损失函数，TripletNew损失函数，以及combine损失函数
         model = TextEncoder('bert-base-chinese', device)
