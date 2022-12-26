@@ -220,7 +220,7 @@ def test(model):
     if args.model_name == 'bm25_rerank':
         bm25_results_list = np.load('data/bm25_rank_list.npy', allow_pickle=True)
         rank_list = []
-        for i in range(len(test_data)):
+        for i in tqdm(range(len(test_data))):
             query = test_data[i]['query']
             answer_idx = quotes.index(test_data[i]['golden_quote'])
             bm25_results = bm25_results_list[i][0:args.max_bm25_len]
@@ -230,7 +230,7 @@ def test(model):
             scores_rank = torch.argsort(scores, descending=True)
             goal = (scores_rank==answer_idx).nonzero()
             if goal.shape[0] == 1:
-                rank_list.append(goal[0][0])
+                rank_list.append(goal[0][0].item())
             elif goal.shape[0] == 0:
                 rank_list.append((len(bm25_results) + 13200) / 2)
             else:
