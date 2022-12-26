@@ -21,7 +21,7 @@ argparser.add_argument('--t', type=float, default=0.03, help='used for contrasti
 argparser.add_argument('--k1', type=float, default=0.2, help='used for combine loss')
 argparser.add_argument('--k2', type=float, default=0.6, help='used for combine loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
-    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new'])
+    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new', 'contrastive_rerank'])
 args = argparser.parse_args()
 
 
@@ -181,23 +181,23 @@ class TextPairScorer(nn.Module):
         return text_embs
 
 
-def train(model):
-    if args.model_name in ['regression', 'bm25_rerank']:
+def train(model, model_name=args.model_name):
+    if model_name in ['regression', 'bm25_rerank']:
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
-        loss_fn = RegressionLoss() if args.model_name == 'regression' else nn.BCEWithLogitsLoss()
-    elif args.model_name in ['contrastive', 'triplet', 'triplet_new']:
+        loss_fn = RegressionLoss() if model_name == 'regression' else nn.BCEWithLogitsLoss()
+    elif model_name in ['contrastive', 'triplet', 'triplet_new']:
         dataset = get_train_neg()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_batch_neg
-        if args.model_name == 'contrastive':
+        if model_name == 'contrastive':
             loss_fn = ContrastiveLoss()
-        elif args.model_name == 'triplet':
+        elif model_name == 'triplet':
             loss_fn = TripletLoss()
         else:
             loss_fn = TripletNewLoss()
-    elif args.model_name == 'combine':
+    elif model_name == 'combine':
         dataset1 = get_train_score()
         train_dataloader1 = DataLoader(dataset1, batch_size=args.batch_size)
         train_dataloader1.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
@@ -212,7 +212,7 @@ def train(model):
 
     # 定义训练策略
     optimizer = AdamW(model.parameters(), lr=args.lr)
-    if args.model_name != 'combine':
+    if model_name != 'combine':
         num_training_steps = args.num_epochs * len(train_dataloader)
     else:
         num_training_steps = args.num_epochs * (len(train_dataloader1) + len(train_dataloader2))
@@ -221,16 +221,17 @@ def train(model):
     )
 
     progress_bar = tqdm(range(num_training_steps))
-
     model.train()
+    print('training:', model_name)
+
     for epoch in range(args.num_epochs):
-        if args.model_name != 'combine':
+        if model_name != 'combine':
             for batch in train_dataloader:
-                if args.model_name in ['regression', 'bm25_rerank']:
+                if model_name in ['regression', 'bm25_rerank']:
                     batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                     outputs = model(batch)
                     loss = loss_fn(outputs, label)
-                elif args.model_name in ['contrastive', 'triplet', 'triplet_new']:
+                elif model_name in ['contrastive', 'triplet', 'triplet_new']:
                     batch = [{k: v.to(model.device) for k, v in input.items()} for input in batch]
                     outputs = model(batch)
                     loss = loss_fn(outputs)
@@ -240,7 +241,7 @@ def train(model):
                 optimizer.zero_grad()
                 progress_bar.update(1)
         
-        elif args.model_name == 'combine':
+        elif model_name == 'combine':
             for batch in train_dataloader1:
                 batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                 outputs = model(batch)
@@ -261,16 +262,17 @@ def train(model):
                 optimizer.zero_grad()
                 progress_bar.update(1)
         
-        test(model)
+        # test(model)
 
 
-def test(model):
+def test(model, model_name=args.model_name, model2=None):
     quotes_ori = load_json('data/corpus.json')
     quotes = [quote['content'] for quote in quotes_ori]
     test_data = load_json('data/test_hard.json')
     model.eval()
+    print('testing:', model_name)
 
-    if args.model_name == 'bm25_rerank':
+    if model_name == 'bm25_rerank':   # 基于BM25进行重排序
         bm25_results_list = np.load('data/bm25_rank_list.npy', allow_pickle=True)
         rank_list = []
         for i in tqdm(range(len(test_data))):
@@ -297,6 +299,45 @@ def test(model):
         recall_50 = (rank_list <= 50).mean()
         mrr = (1 / rank_list).mean()
     
+    elif model_name == 'contrasrive_rerank':   # 基于ContrastiveLoss进行重排序
+        # 得到ContrastiveLoss的结果
+        model.eval()
+        with torch.no_grad():
+            quotes_embeddings = model.encode(quotes)
+        quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
+        test_query = []
+        for i in range(len(test_data)):
+            test_query.append(test_data[i]['query'])
+        with torch.no_grad():
+            test_query = model.encode(test_query)
+        test_query = F.normalize(test_query, p=2, dim=-1)
+        scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
+        scores_rank = torch.argsort(scores, dim=1, descending=True)
+
+        # 截取前100名结果进行重排序
+        rank_list = []
+        for i in tqdm(range(len(test_data))):
+            query = test_data[i]['query']
+            answer_idx = quotes.index(test_data[i]['golden_quote'])
+            pre_results = scores_rank[i][0:100]
+            texts_pairs = [[query, quotes[j]] for j in pre_results]
+            with torch.no_grad():
+                scores = model2.encode(texts_pairs)
+            scores_rank = torch.argsort(scores, descending=True)
+            scores_rank = np.array(scores_rank.cpu())
+            scores_rank = pre_results[scores_rank]
+            goal = (scores_rank==answer_idx).nonzero()
+            if goal[0].shape[0] == 1:
+                rank_list.append(goal[0][0])
+            elif goal[0].shape[0] == 0:
+                rank_list.append((len(bm25_results) + 13200) / 2)
+    
+        rank_list = np.array(rank_list) + 1
+        recall_3 = (rank_list <= 3).mean()
+        recall_10 = (rank_list <= 10).mean()
+        recall_50 = (rank_list <= 50).mean()
+        mrr = (1 / rank_list).mean()
+
     else:
         # 将库中所有文本编码为向量
         model.eval()
@@ -325,57 +366,6 @@ def test(model):
 
 
 def demo(model, query):
-    quotes_ori = load_json('data/corpus.json')
-    quotes = [quote['content'] for quote in quotes_ori]
-    model.eval()
-
-    if args.model_name == 'bm25_rerank':
-        bm25_results_list = np.load('data/bm25_rank_list.npy', allow_pickle=True)
-        rank_list = []
-        for i in tqdm(range(len(test_data))):
-            query = test_data[i]['query']
-            answer_idx = quotes.index(test_data[i]['golden_quote'])
-            bm25_results = np.array(bm25_results_list[i][0:100])
-            texts_pairs = [[query, quotes[j]] for j in bm25_results]
-            with torch.no_grad():
-                scores = model.encode(texts_pairs)
-            scores_rank = torch.argsort(scores, descending=True)
-            scores_rank = np.array(scores_rank.cpu())
-            scores_rank = bm25_results[scores_rank]
-            goal = (scores_rank==answer_idx).nonzero()
-            if goal[0].shape[0] == 1:
-                rank_list.append(goal[0][0])
-            elif goal[0].shape[0] == 0:
-                rank_list.append((len(bm25_results) + 13200) / 2)
-            else:
-                exit()
-        
-        rank_list = np.array(rank_list) + 1
-        recall_3 = (rank_list <= 3).mean()
-        recall_10 = (rank_list <= 10).mean()
-        recall_50 = (rank_list <= 50).mean()
-        mrr = (1 / rank_list).mean()
-    
-    else:
-        model.eval()
-        with torch.no_grad():
-            quotes_embeddings = model.encode(quotes)
-        quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
-        with torch.no_grad():
-            test_query = model.encode(query)
-        print(test_query.shape)
-        exit()
-        test_query = F.normalize(test_query, p=2, dim=-1)
-        scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
-        
-        scores_rank = torch.argsort(scores, dim=1, descending=True)
-        scores_rank = scores_rank - torch.tensor(test_answer).unsqueeze(1).to(device)
-        scores_goal = torch.argwhere(scores_rank == 0)[:, 1]
-        recall_3 = (scores_goal < 3).sum() / scores_goal.shape[0]
-        recall_10 = (scores_goal < 10).sum() / scores_goal.shape[0]
-        recall_50 = (scores_goal < 50).sum() / scores_goal.shape[0]
-        mrr = (1 / (scores_goal + 1)).mean()
-    
     # 将库中所有文本编码为向量
     quotes = [quote['content'] for quote in load_json("data/corpus.json")]
     quotes_embeddings = model.encode(quotes)
@@ -399,19 +389,19 @@ def demo(model, query):
 if __name__ == '__main__':
     set_seed(42)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    if args.model_name == 'bm25_rerank':
+    if args.model_name == 'bm25_rerank':   # 基于BM25的结果做重排序
         model = TextPairScorer('bert-base-chinese', device)
-    else:
+        train(model)
+        test(model)
+    elif args.model_name == 'contrastive_rerank':   # 基于ContrastiveLoss的结果做重排序
+        model1 = TextEncoder('bert-base-chinese', device)
+        train(model1, model_name='contrastive')
+        model2 = TextPairScorer('bert-base-chinese', device)
+        train(model2, model_name='bm25_rerank')
+        test(model1, model_name='contrastive_rerank', model2=model2)
+    else:   # 3种损失函数，TripletNew损失函数，以及combine损失函数
         model = TextEncoder('bert-base-chinese', device)
+        train(model)
+        test(model)
 
-    # 训练模型
-    train(model)
-    test(model)
-
-    # 保存模型
-    # saved_path = init_saved_path('output')  # 保存到output文件夹下，init_saved_path是加时间戳
-    # model.save(saved_path)
-
-    # 加载保存的模型，用一个查询的例子看效果
-    # model = TextEncoder(saved_path, device)
     # demo(model, '时间是无价之宝')
