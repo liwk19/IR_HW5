@@ -10,6 +10,7 @@ from utils import *
 import torch.nn.functional as F
 import argparse
 import copy
+from rank_bm25 import BM25Okapi
 
 
 argparser = argparse.ArgumentParser("BERT IR", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -149,6 +150,13 @@ class TextPairScorer(nn.Module):
         return self.fc(bert_emb)
 
 
+def bm25(query, query_seg, size):
+    quotes = load_json('data/corpus.json')
+    fenci_quotes = [quote['content_seg'].split(' ') for quote in quotes]
+    fenci_bm25 = BM25Okapi(fenci_quotes)
+    return fenci_bm25.get_top_n(query_seg, quotes, n=size)
+
+
 def train(model: TextEncoder):
     if args.model_name in ['regression', 'rerank']:
         dataset = get_train_score()
@@ -200,28 +208,50 @@ def train(model: TextEncoder):
 
 
 def test(model):
-    # 将库中所有文本编码为向量
-    quotes = [quote['content'] for quote in load_json("data/corpus.json")]
-    quotes_embeddings = model.encode(quotes)
-    quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
-    test_data = load_json('data/test_hard.json')
-    test_query = []
-    test_answer = []
-    for i in range(len(test_data)):
-        test_query.append(test_data[i]['query'])
-        test_answer.append(quotes.index(test_data[i]['golden_quote']))
-    test_query = model.encode(test_query)
-    test_query = F.normalize(test_query, p=2, dim=-1)
-    scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
+    if args.model_name == 'bm25':
+        test_data = load_json('data/test_hard.json')
+        rank_list = []
+        for data in test_data:
+            results = bm25(data['query'], query_seg=data['query_seg'], size=13201)
+            find = False
+            for i, res in enumerate(results):
+                if res['content'] == data['golden_quote']:
+                    rank_list.append(i)
+                    find = True
+                    break
+            if not find:
+                exit()
+
+        rank_list = np.array(rank_list) + 1
+        recall_3 = (rank_list <= 3).mean()
+        recall_10 = (rank_list <= 10).mean()
+        recall_50 = (rank_list <= 50).mean()
+        mrr = (1 / rank_list).mean()
+        print(f'Recall@3: {recall_3:.3f}, Recall@10: {recall_10:.3f}, Recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
     
-    scores_rank = torch.argsort(scores, dim=1, descending=True)
-    scores_rank = scores_rank - torch.tensor(test_answer).unsqueeze(1).to(device)
-    scores_goal = torch.argwhere(scores_rank == 0)[:, 1]
-    recall_3 = (scores_goal < 3).sum() / scores_goal.shape[0]
-    recall_10 = (scores_goal < 10).sum() / scores_goal.shape[0]
-    recall_50 = (scores_goal < 50).sum() / scores_goal.shape[0]
-    mrr = (1 / (scores_goal + 1)).mean()
-    print(f'recall@3: {recall_3:.3f}, recall@10: {recall_10:.3f}, recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
+    else:
+        # 将库中所有文本编码为向量
+        quotes = [quote['content'] for quote in load_json("data/corpus.json")]
+        quotes_embeddings = model.encode(quotes)
+        quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
+        test_data = load_json('data/test_hard.json')
+        test_query = []
+        test_answer = []
+        for i in range(len(test_data)):
+            test_query.append(test_data[i]['query'])
+            test_answer.append(quotes.index(test_data[i]['golden_quote']))
+        test_query = model.encode(test_query)
+        test_query = F.normalize(test_query, p=2, dim=-1)
+        scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
+        
+        scores_rank = torch.argsort(scores, dim=1, descending=True)
+        scores_rank = scores_rank - torch.tensor(test_answer).unsqueeze(1).to(device)
+        scores_goal = torch.argwhere(scores_rank == 0)[:, 1]
+        recall_3 = (scores_goal < 3).sum() / scores_goal.shape[0]
+        recall_10 = (scores_goal < 10).sum() / scores_goal.shape[0]
+        recall_50 = (scores_goal < 50).sum() / scores_goal.shape[0]
+        mrr = (1 / (scores_goal + 1)).mean()
+        print(f'recall@3: {recall_3:.3f}, recall@10: {recall_10:.3f}, recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
 
 
 def demo(model, path):
@@ -251,7 +281,8 @@ if __name__ == '__main__':
     model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    model = train(model)
+    if args.model_name != 'bm25':
+        model = train(model)
     test(model)
 
     # 保存模型
