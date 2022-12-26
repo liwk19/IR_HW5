@@ -301,7 +301,7 @@ if __name__ == '__main__':
         model = TextEncoder('bert-base-chinese', device)
 
     # 训练模型
-    # train(model)
+    train(model)
     test(model)
 
     # 保存模型
