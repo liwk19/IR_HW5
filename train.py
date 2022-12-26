@@ -197,7 +197,9 @@ def test(model):
         # 将库中所有文本编码为向量
         quotes_ori = load_json('data/corpus.json')
         quotes = [quote['content'] for quote in quotes_ori]
-        quotes_embeddings = model.encode(quotes)
+        model.eval()
+        with torch.no_grad():
+            quotes_embeddings = model.encode(quotes)
         quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
         test_data = load_json('data/test_hard.json')
         test_query = []
@@ -205,7 +207,8 @@ def test(model):
         for i in range(len(test_data)):
             test_query.append(test_data[i]['query'])
             test_answer.append(quotes.index(test_data[i]['golden_quote']))
-        test_query = model.encode(test_query)
+        with torch.no_grad():
+            test_query = model.encode(test_query)
         test_query = F.normalize(test_query, p=2, dim=-1)
         scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
         
