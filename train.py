@@ -223,9 +223,9 @@ def train(model, model_name=args.model_name):
         name="linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
     )
 
+    print('training:', model_name)
     progress_bar = tqdm(range(num_training_steps))
     model.train()
-    print('training:', model_name)
     # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
     if model_name == 'contrastive_rerank':
         args.num_epochs = 5
