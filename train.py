@@ -152,12 +152,16 @@ class TextPairScorer(nn.Module):
         self.tokenizer: BertTokenizer = BertTokenizer.from_pretrained(path)
         self.bert_model = BertModel.from_pretrained(path)
         self.fc = nn.Linear(768, 1)
+        self.fc1 = nn.Linear(768, 32)
+        self.fc2 = nn.Linear(32, 1)
         self.device = device
         self.to(device)
     
     def forward(self, inputs):
         bert_emb = self.bert_model(**inputs[0])[0][:, 0]
-        return self.fc(bert_emb).squeeze(1)
+        # return self.fc(bert_emb)
+        bert_emb = F.relu(self.fc1(bert_emb))
+        return self.fc2(bert_emb).squeeze(1)
 
     def collate_fn_pair_score(self, batch):
         queries, docs, scores = [x[0] for x in batch], [x[1] for x in batch], [x[2] for x in batch]
