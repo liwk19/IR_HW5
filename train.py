@@ -383,25 +383,23 @@ def test(model, model_name=args.model_name, model2=None):
     print(f'recall@3: {recall_3:.3f}, recall@10: {recall_10:.3f}, recall@50: {recall_50:.3f}, MRR: {mrr:.3f}')
 
 
-def demo(model, query):
-    # 将库中所有文本编码为向量
-    quotes = [quote['content'] for quote in load_json("data/corpus.json")]
-    quotes_embeddings = model.encode(quotes)
-    quotes_embeddings = torch.nn.functional.normalize(quotes_embeddings, p=2, dim=-1)
-    torch.save(quotes_embeddings, path+'/corpus_embedding')
+def demo(model, queries):
+    quotes_ori = load_json('data/corpus.json')
+    quotes = [quote['content'] for quote in quotes_ori]
+    model.eval()
+    with torch.no_grad():
+        quotes_embeddings = model.encode(quotes)
+    quotes_embeddings = F.normalize(quotes_embeddings, p=2, dim=-1)
+    with torch.no_grad():
+        test_query = model.encode(queries)
+    test_query = F.normalize(test_query, p=2, dim=-1)
+    scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [3, 13201]
+    scores_rank = torch.argsort(scores, dim=1, descending=True)
 
-    queries = ['要团结协作']
-    for query in queries:
-        # 将查询文本编码为向量
-        query_embedding = model.encode([query])
-        query_embedding = torch.nn.functional.normalize(query_embedding, p=2, dim=-1)
-        # 从库中找到与之最相似的向量
-        scores = torch.mm(query_embedding, quotes_embeddings.t())[0]
-        top_results = torch.topk(scores, k=min(5, len(quotes)))
-        # 输出结果
-        print(f'{query}:')
-        for quote in [quotes[idx] for idx in top_results[1]]:
-            print(f'  {quote}')
+    for i in range(3):
+        print('query:', queries[i])
+        for j in range(5):
+            print(j + 1, quotes[scores_rank[i][j]])
 
 
 if __name__ == '__main__':
@@ -422,5 +420,4 @@ if __name__ == '__main__':
         model = TextEncoder('bert-base-chinese', device)
         train(model)
         test(model)
-
-    # demo(model, '时间是无价之宝')
+        demo(model, ['时间是无价之宝', '我们要平等地对待和尊重各行各业的人', '为祖国健康工作五十年！'])
