@@ -223,7 +223,7 @@ def train(model, model_name=args.model_name):
     
     # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
     if model_name == 'neural_rerank':
-        args.num_epochs = 5
+        args.num_epochs = 6
     if model_name != 'combine':
         num_training_steps = args.num_epochs * len(train_dataloader)
     else:
