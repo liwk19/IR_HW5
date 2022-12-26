@@ -414,7 +414,7 @@ if __name__ == '__main__':
     elif args.model_name in ['regression_rerank', 'contrastive_rerank', 'triplet_rerank',
             'regression_rerank2', 'contrastive_rerank2', 'triplet_rerank2']: # 基于神经网络结果做重排序
         model1 = TextEncoder('bert-base-chinese', device)
-        # train(model1, model_name=args.model_name.split('_')[0])
+        train(model1, model_name=args.model_name.split('_')[0])
         model2 = TextPairScorer('bert-base-chinese', device, args.model_name.split('_')[1]=='rerank2')
         train(model2, model_name='neural_'+args.model_name.split('_')[1])
         test(model1, model_name='neural_rerank', model2=model2)
