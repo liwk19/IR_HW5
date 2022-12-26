@@ -186,7 +186,7 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
-        test(model)
+        # test(model)
 
 
 def test(model):
@@ -251,6 +251,7 @@ if __name__ == '__main__':
     # 训练模型
     if args.model_name != 'bm25':
         train(model)
+    test(model)
 
     # 保存模型
     # saved_path = init_saved_path('output')  # 保存到output文件夹下，init_saved_path是加时间戳
