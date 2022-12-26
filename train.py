@@ -18,8 +18,10 @@ argparser.add_argument('--num_epochs', type=int, default=3)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
 argparser.add_argument('--t', type=float, default=0.03, help='used for contrastive loss')
+argparser.add_argument('--k1', type=float, default=0.2, help='used for combine loss')
+argparser.add_argument('--k2', type=float, default=0.6, help='used for combine loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
-    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank'])
+    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine'])
 args = argparser.parse_args()
 
 
@@ -179,10 +181,25 @@ def train(model):
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_batch_neg
         loss_fn = ContrastiveLoss() if args.model_name == 'contrastive' else TripletLoss()
+    elif args.model_name == 'combine':
+        dataset1 = get_train_score()
+        train_dataloader1 = DataLoader(dataset1, batch_size=args.batch_size)
+        train_dataloader1.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
+        dataset2 = get_train_neg()
+        train_dataloader2 = DataLoader(dataset2, batch_size=args.batch_size)
+        train_dataloader2.collate_fn = model.collate_fn_batch_neg
+        loss_reg = RegressionLoss()
+        loss_con = ContrastiveLoss()
+        loss_tri = TripletLoss()
+    else:
+        exit()
 
     # 定义训练策略
     optimizer = AdamW(model.parameters(), lr=args.lr)
-    num_training_steps = args.num_epochs * len(train_dataloader)
+    if args.model_name != 'combine':
+        num_training_steps = args.num_epochs * len(train_dataloader)
+    else:
+        num_training_steps = args.num_epochs * (len(train_dataloader1) + len(train_dataloader2))
     lr_scheduler = get_scheduler(
         name="linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
     )
@@ -191,20 +208,44 @@ def train(model):
 
     model.train()
     for epoch in range(args.num_epochs):
-        for batch in train_dataloader:
-            if args.model_name in ['regression', 'bm25_rerank']:
+        if args.model_name != 'combine':
+            for batch in train_dataloader:
+                if args.model_name in ['regression', 'bm25_rerank']:
+                    batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
+                    outputs = model(batch)
+                    loss = loss_fn(outputs, label)
+                elif args.model_name in ['contrastive', 'triplet']:
+                    batch = [{k: v.to(model.device) for k, v in input.items()} for input in batch]
+                    outputs = model(batch)
+                    loss = loss_fn(outputs)
+                loss.backward()
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                progress_bar.update(1)
+        
+        elif args.model_name == 'combine':
+            for batch in train_dataloader1:
                 batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                 outputs = model(batch)
-                loss = loss_fn(outputs, label)
-            else:
+                loss = args.k1 * loss_reg(outputs, label)
+                loss.backward()
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                progress_bar.update(1)
+            
+            for batch in train_dataloader2:
                 batch = [{k: v.to(model.device) for k, v in input.items()} for input in batch]
                 outputs = model(batch)
-                loss = loss_fn(outputs)
-            loss.backward()
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
-            progress_bar.update(1)
+                loss = args.k2 * loss_con(outputs) + (1-args.k1-args.k2) * loss_tri(outputs)
+                loss.backward()
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                progress_bar.update(1)
+        
+        test(model)
 
 
 def test(model):
