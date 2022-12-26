@@ -220,9 +220,9 @@ def train(model, model_name=args.model_name):
         name="linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
     )
 
+    print('training:', model_name)
     progress_bar = tqdm(range(num_training_steps))
     model.train()
-    print('training:', model_name)
 
     for epoch in range(args.num_epochs):
         if model_name != 'combine':
