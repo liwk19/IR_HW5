@@ -21,7 +21,8 @@ argparser.add_argument('--t', type=float, default=0.03, help='used for contrasti
 argparser.add_argument('--k1', type=float, default=0.2, help='used for combine loss')
 argparser.add_argument('--k2', type=float, default=0.6, help='used for combine loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
-    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new', 'contrastive_rerank'])
+    choices=['regression', 'contrastive', 'triplet', 'bm25_rerank', 'combine', 'triplet_new',
+    'regression_rerank', 'contrastive_rerank', 'triplet_rerank'])
 args = argparser.parse_args()
 
 
@@ -182,7 +183,7 @@ class TextPairScorer(nn.Module):
 
 
 def train(model, model_name=args.model_name):
-    if model_name in ['regression', 'bm25_rerank', 'contrastive_rerank']:
+    if model_name in ['regression', 'bm25_rerank', 'neural_rerank']:
         dataset = get_train_score()
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size)
         train_dataloader.collate_fn = model.collate_fn_pair_score   # 就是做tokenize
@@ -211,15 +212,14 @@ def train(model, model_name=args.model_name):
         exit()
 
     # 定义训练策略
-    if model_name == 'contrastive_rerank':   # 命令行只能指定1个lr，为ContrastiveLoss的lr，因此rerank的lr写死为最优值
+    if model_name == 'neural_rerank':   # 命令行只能指定1个lr，为ContrastiveLoss的lr，因此rerank的lr写死为最优值
         optimizer = AdamW(model.parameters(), lr=1e-5)
     else:
         optimizer = AdamW(model.parameters(), lr=args.lr)
     
     # 命令行只能指定1个num_epochs，为ContrastiveLoss的num_epochs，因此rerank的num_epochs写死为最优值
-    if model_name == 'contrastive_rerank':
+    if model_name == 'neural_rerank':
         args.num_epochs = 5
-    print(args.num_epochs)
     if model_name != 'combine':
         num_training_steps = args.num_epochs * len(train_dataloader)
     else:
@@ -235,7 +235,7 @@ def train(model, model_name=args.model_name):
     for epoch in range(args.num_epochs):
         if model_name != 'combine':
             for batch in train_dataloader:
-                if model_name in ['regression', 'bm25_rerank', 'contrastive_rerank']:
+                if model_name in ['regression', 'bm25_rerank', 'neural_rerank']:
                     batch, label = [{k: v.to(model.device) for k, v in input.items()} for input in batch[:-1]], batch[-1].to(model.device)
                     outputs = model(batch)
                     loss = loss_fn(outputs, label)
@@ -305,7 +305,7 @@ def test(model, model_name=args.model_name, model2=None):
         recall_50 = (rank_list <= 50).mean()
         mrr = (1 / rank_list).mean()
     
-    elif model_name == 'contrasrive_rerank':   # 基于ContrastiveLoss进行重排序
+    elif model_name == 'neural_rerank':   # 基于ContrastiveLoss进行重排序
         # 得到ContrastiveLoss的结果
         model.eval()
         with torch.no_grad():
@@ -399,12 +399,12 @@ if __name__ == '__main__':
         model = TextPairScorer('bert-base-chinese', device)
         train(model)
         test(model)
-    elif args.model_name == 'contrastive_rerank':   # 基于ContrastiveLoss的结果做重排序
+    elif args.model_name in ['regression_rerank', 'contrastive_rerank', 'triplet_rerank']: # 基于神经网络结果做重排序
         model1 = TextEncoder('bert-base-chinese', device)
-        train(model1, model_name='contrastive')
+        train(model1, model_name=args.model_name.split('_')[0])
         model2 = TextPairScorer('bert-base-chinese', device)
-        train(model2, model_name='contrastive_rerank')
-        test(model1, model_name='contrastive_rerank', model2=model2)
+        train(model2, model_name='neural_rerank')
+        test(model1, model_name='neural_rerank', model2=model2)
     else:   # 3种损失函数，TripletNew损失函数，以及combine损失函数
         model = TextEncoder('bert-base-chinese', device)
         train(model)
