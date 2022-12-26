@@ -260,8 +260,6 @@ def train(model):
                 lr_scheduler.step()
                 optimizer.zero_grad()
                 progress_bar.update(1)
-        
-        test(model)
 
 
 def test(model):
