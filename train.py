@@ -17,8 +17,7 @@ argparser.add_argument('--lr', type=float, default=5e-5)
 argparser.add_argument('--num_epochs', type=int, default=3)
 argparser.add_argument('--batch_size', type=int, default=60)
 argparser.add_argument('--margin', type=float, default=1.0, help='used for triplet loss')
-argparser.add_argument('--in_batch_t', type=float, default=0.05, help='used for contrastive loss')
-argparser.add_argument('--hard_t', type=float, default=0.05, help='used for contrastive loss')
+argparser.add_argument('--t', type=float, default=0.03, help='used for contrastive loss')
 argparser.add_argument('--model_name', type=str, default='regression', 
     choices=['regression', 'contrastive', 'triplet', 'bm25_rerank'])
 args = argparser.parse_args()
@@ -127,8 +126,7 @@ class ContrastiveLoss(nn.Module):
         answer_norm = F.normalize(answer, p=2, dim=1)
         scores = torch.mm(query_norm, answer_norm.T)
         labels = torch.tensor(range(len(scores)), dtype=torch.long, device=device)
-        scores = scores / args.in_batch_t
-        scores[list(range(len(scores))), len(scores) + torch.tensor(range(len(scores)))] *= args.in_batch_t / args.hard_t
+        scores = scores / args.t
         loss = nn.CrossEntropyLoss()
         return loss(scores, labels)
 
