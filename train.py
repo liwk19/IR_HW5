@@ -171,9 +171,6 @@ def train(model: TextEncoder):
     progress_bar = tqdm(range(num_training_steps))
 
     model.train()
-    best_model = None
-    min_loss = 1e9
-
     for epoch in range(args.num_epochs):
         for batch in train_dataloader:
             if args.model_name == 'regression':
@@ -189,14 +186,7 @@ def train(model: TextEncoder):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
-        
-        print(f'Epoch: {epoch}, loss: {loss:.4f}')
         test(model)
-        if loss.item() < min_loss:
-            min_loss = loss.item()
-            best_model = copy.deepcopy(model)
-
-    return best_model
 
 
 def test(model):
@@ -257,8 +247,7 @@ if __name__ == '__main__':
 
     # 训练模型
     if args.model_name != 'bm25':
-        model = train(model)
-    test(model)
+        train(model)
 
     # 保存模型
     # saved_path = init_saved_path('output')  # 保存到output文件夹下，init_saved_path是加时间戳
