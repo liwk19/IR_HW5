@@ -318,14 +318,14 @@ def test(model, model_name=args.model_name, model2=None):
             test_query = model.encode(test_query)
         test_query = F.normalize(test_query, p=2, dim=-1)
         scores = torch.mm(test_query, quotes_embeddings.T)   # shape: [207, 13201]
-        scores_rank = torch.argsort(scores, dim=1, descending=True)
+        scores_rank_ori = torch.argsort(scores, dim=1, descending=True)
 
         # 截取前100名结果进行重排序
         rank_list = []
         for i in tqdm(range(len(test_data))):
             query = test_data[i]['query']
             answer_idx = quotes.index(test_data[i]['golden_quote'])
-            pre_results = scores_rank[i][0:100]
+            pre_results = scores_rank_ori[i][0:100]
             texts_pairs = [[query, quotes[j]] for j in pre_results]
             with torch.no_grad():
                 scores = model2.encode(texts_pairs)
@@ -333,10 +333,10 @@ def test(model, model_name=args.model_name, model2=None):
             scores_rank = np.array(scores_rank.cpu())
             scores_rank = pre_results[scores_rank]
             goal = (scores_rank==answer_idx).nonzero()
-            if goal[0].shape[0] == 1:
-                rank_list.append(goal[0][0])
-            elif goal[0].shape[0] == 0:
-                rank_list.append((len(bm25_results) + 13200) / 2)
+            if goal.shape[0] != 0:
+                rank_list.append(goal[0][0].item())
+            else:
+                rank_list.append((100 + 13200) / 2)
     
         rank_list = np.array(rank_list) + 1
         recall_3 = (rank_list <= 3).mean()
